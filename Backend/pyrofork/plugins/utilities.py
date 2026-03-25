@@ -27,7 +27,8 @@ from Backend.config import Telegram
 from Backend.helper.encrypt import decode_string
 
 
-CONCURRENT_TASKS = 15
+CONCURRENT_TASKS = 10
+BATCH_SIZE = 100
 PROGRESS_UPDATE_EVERY = 50
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -228,12 +229,9 @@ async def search_command(client: Client, message: Message):
 
 
 
-
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Helper: check single message
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Check single Telegram message
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async def check_message(client, stream_hash):
     try:
         decoded = await decode_string(stream_hash)
@@ -254,17 +252,17 @@ async def check_message(client, stream_hash):
         return None
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Batch processor
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async def process_batch(client, batch):
     tasks = [check_message(client, s) for s in batch]
     return await asyncio.gather(*tasks, return_exceptions=True)
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # /dbcheck — Integrity checker (find orphaned streams)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Client.on_message(filters.command('dbcheck') & filters.private & CustomFilters.owner, group=10)
 async def dbcheck_command(client: Client, message: Message):
 
@@ -272,7 +270,7 @@ async def dbcheck_command(client: Client, message: Message):
     purge_mode = len(args) > 1 and args[1].lower() == "purge"
 
     status_msg = await message.reply_text(
-        "🚀 Advanced DB Check started...\nThis will run fast ⚡",
+        "🚀 DB Check started (Atlas-safe mode)...",
         quote=True
     )
 
@@ -289,14 +287,27 @@ async def dbcheck_command(client: Client, message: Message):
     try:
         for i in range(1, db.current_db_index + 1):
             storage = db.dbs.get(f"storage_{i}")
+
             if storage is None:
                 continue
 
-            # ───────── MOVIES ─────────
-            cursor = storage["movie"].find({}, no_cursor_timeout=True)
+            # ───────── MOVIES (PAGINATION) ─────────
+            last_id = None
 
-            try:
-                async for movie in cursor:
+            while True:
+                query = {"_id": {"$gt": last_id}} if last_id else {}
+
+                docs = await storage["movie"] \
+                    .find(query) \
+                    .sort("_id", 1) \
+                    .limit(BATCH_SIZE) \
+                    .to_list(length=BATCH_SIZE)
+
+                if not docs:
+                    break
+
+                for movie in docs:
+                    last_id = movie["_id"]
                     title = movie.get("title", "Unknown")
 
                     stream_ids = [
@@ -332,16 +343,24 @@ async def dbcheck_command(client: Client, message: Message):
                                 f"⚡ Speed: {speed}/sec"
                             )
 
-            except CursorNotFound:
-                await status_msg.edit_text("⚠️ Cursor expired (movies), retrying...")
-            finally:
-                await cursor.close()
+            # ───────── TV (PAGINATION) ─────────
+            last_id = None
 
-            # ───────── TV ─────────
-            cursor = storage["tv"].find({}, no_cursor_timeout=True)
+            while True:
+                query = {"_id": {"$gt": last_id}} if last_id else {}
 
-            try:
-                async for show in cursor:
+                docs = await storage["tv"] \
+                    .find(query) \
+                    .sort("_id", 1) \
+                    .limit(BATCH_SIZE) \
+                    .to_list(length=BATCH_SIZE)
+
+                if not docs:
+                    break
+
+                for show in docs:
+                    last_id = show["_id"]
+
                     stream_ids = []
 
                     for season in show.get("seasons", []):
@@ -378,14 +397,10 @@ async def dbcheck_command(client: Client, message: Message):
                                 f"⚡ Speed: {speed}/sec"
                             )
 
-            except CursorNotFound:
-                await status_msg.edit_text("⚠️ Cursor expired (tv), retrying...")
-            finally:
-                await cursor.close()
-
         # ───────── PURGE ─────────
         if purge_mode and dead_entries:
             purge_tasks = []
+
             for stream_hash in dead_entries:
                 purge_tasks.append(db.delete_media_by_stream_id(stream_hash))
 
@@ -413,7 +428,9 @@ async def dbcheck_command(client: Client, message: Message):
         )
 
     except Exception as e:
+        LOGGER.error(f"[DBCheck] Error: {e}")
         await status_msg.edit_text(f"❌ DB check failed: {e}")
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  /exportchannels & /importchannels — Backup/restore channel config
