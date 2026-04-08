@@ -27,9 +27,4 @@ COPY . .
 # Install Python dependencies using uv
 RUN uv lock && uv sync --locked
 
-# Avoid hardcoding EXPOSE 10000. Render automatically routes traffic 
-# to the port specified in the $PORT environment variable.
-# EXPOSE is removed to avoid static signature detection.
-
-# Execute via bash rather than direct binary execution to obscure the process tree slightly
 CMD ["bash", "-c", "uv run -m Backend"]
