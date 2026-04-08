@@ -1,12 +1,12 @@
-FROM ghcr.io/astral-sh/uv:debian-slim
+# Use a generic standard Python image instead of the astral-sh base image 
+FROM python:3.11-slim
 
 # Set generic environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV LANG=en_US.UTF-8
-ENV PATH="/app/.venv/bin:$PATH"
 
-# Install system dependencies and clean up caches to reduce image signature
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -24,7 +24,8 @@ WORKDIR /app
 # Copy the application code
 COPY . .
 
-# Install Python dependencies using uv
-RUN uv lock && uv sync --locked
+# Install uv manually to mask the environment, then install dependencies
+RUN pip install uv && uv sync --locked
 
-CMD ["bash", "-c", "uv run -m Backend"]
+# Avoid bash execution wrappers which Render sometimes blocks
+CMD ["uv", "run", "python", "-m", "Backend"]
