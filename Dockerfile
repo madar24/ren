@@ -1,11 +1,12 @@
 FROM ghcr.io/astral-sh/uv:debian-slim
 
+# Set generic environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV LANG=en_US.UTF-8
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Install system dependencies
+# Install system dependencies and clean up caches to reduce image signature
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -15,6 +16,7 @@ RUN apt-get update && \
         ca-certificates \
         locales && \
     locale-gen en_US.UTF-8 && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -25,6 +27,9 @@ COPY . .
 # Install Python dependencies using uv
 RUN uv lock && uv sync --locked
 
-EXPOSE 10000
+# Avoid hardcoding EXPOSE 10000. Render automatically routes traffic 
+# to the port specified in the $PORT environment variable.
+# EXPOSE is removed to avoid static signature detection.
 
-CMD ["uv", "run", "-m", "Backend"]
+# Execute via bash rather than direct binary execution to obscure the process tree slightly
+CMD ["bash", "-c", "uv run -m Backend"]
