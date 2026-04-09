@@ -13,10 +13,8 @@ RUN apt-get update && apt-get install -y \
 # Install Tailscale
 RUN curl -fsSL https://tailscale.com/install.sh | sh
 RUN mkdir -p /var/run/tailscale /var/cache/tailscale /var/lib/tailscale
-
-# Install uv package manager
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Install uv package manager via pip
+RUN pip install uv
 
 # Install Python dependencies
 COPY pyproject.toml uv.lock ./
