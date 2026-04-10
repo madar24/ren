@@ -15,9 +15,7 @@ else
   tailscale up --authkey="${TAILSCALE_AUTHKEY}" --hostname="tailscale-server-singa" --ssh --accept-routes
   
   echo "Configuring Tailscale serve..."
-  # Proxies Tailnet traffic to your app's local port (Assuming it runs on 8000)
-  # Adjust '8000' if your app uses a different port internally.
-  tailscale serve localhost:8000
+  tailscale serve localhost:8001
 fi
 
 echo "Starting the main application..."
